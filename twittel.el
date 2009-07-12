@@ -26,19 +26,39 @@
 ;; A Twitter API wrapper for Emacs Lisp
 
 ;; twitter-statuses-public-timeline
+;; twitter-statuses-friends-timeline
+;; twitter-statuses-user-timeline
+;; twitter-statuses-mentions
+
+;;; Code:
 
 (require 'cl)
 (require 'url)
 (require 'url-http)
 (require 'xml)
 
+;;; Customizations
+
+(defgroup twitter nil "Twitter" :group 'applications)
+
+(defcustom twitter-username nil "username" :type '(string) :group 'twitter)
+
+(defcustom twitter-password nil "password" :type '(string) :group 'twitter)
+
 ;;; Twitter API
+
+(defun twitter-url-retrieve (url callback cbargs)
+  "Very insecure authentication using BasicAuth to twitter.com."
+  (push '("twitter.com:443" .
+	  '("Twitter API" .
+	    (base64-encode-string (concat twitter-username ":" twitter-password))))
+	url-http-real-basic-auth-storage)
+  (url-retrieve url callback cbargs))
 
 (defun twitter-error (status)
   (let ((e (plist-get status :error)))
     (when e
-      (signal (car e) (cdr e))
-      (message "%s : %s" (car e) (cdr e)))))
+      (signal (car e) (cdr e)))))
 
 ;; Timeline methods
 
@@ -47,9 +67,30 @@
   (let ((url-request-method "GET")
 	(url-request-data ""))
     (url-retrieve "http://twitter.com/statuses/public_timeline.xml"
-		  'twitter-statuses-public-timeline-callback '())))
+		  'twitter-timeline-callback '())))
 
-(defun twitter-statuses-public-timeline-callback (status)
+(defun twitter-statuses-friends-timeline ()
+  (interactive)
+  (let ((url-request-method "GET")
+	(url-request-data ""))
+    (twitter-url-retrieve "http://twitter.com/statuses/friends_timeline.xml"
+			  'twitter-timeline-callback '())))
+
+(defun twitter-statuses-user-timeline ()
+  (interactive)
+  (let ((url-request-method "GET")
+	(url-request-data ""))
+    (twitter-url-retrieve "http://twitter.com/statuses/user_timeline.xml"
+			  'twitter-timeline-callback '())))
+
+(defun twitter-statuses-mentions ()
+  (interactive)
+  (let ((url-request-method "GET")
+	(url-request-data ""))
+    (twitter-url-retrieve "http://twitter.com/statuses/mentions.xml"
+			  'twitter-timeline-callback '())))
+
+(defun twitter-timeline-callback (status)
   (let* ((statuses-node (car (xml-parse-region (point-min) (point-max))))
 	 (contents (twitter-statuses-format statuses-node))
 	 (buffer (get-buffer-create"*Twitter Public Timeline*")))
@@ -70,7 +111,7 @@
 	(statuses (xml-get-children statuses-node 'status)))
     (mapcar #'(lambda (status-node)
 		(let ((status-string (twitter-parse-status-node status-node)))
-		  (setq message (concat status-string "\n" message))))
+		  (setq message (concat message "\n" status-string))))
 	    statuses)
     message))
 
