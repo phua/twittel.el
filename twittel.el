@@ -29,6 +29,8 @@
 ;; twitter-statuses-friends-timeline
 ;; twitter-statuses-user-timeline
 ;; twitter-statuses-mentions
+;; twitter-statuses-update-prompt
+;; twitter-statuses-update-region
 
 ;;; Code:
 
@@ -39,20 +41,22 @@
 
 ;;; Customizations
 
-(defgroup twitter nil "Twitter" :group 'applications)
+(defgroup twittel nil "Twittel" :group 'applications)
 
-(defcustom twitter-username nil "username" :type '(string) :group 'twitter)
+(defcustom twittel-username nil "username" :type '(string) :group 'twittel)
 
-(defcustom twitter-password nil "password" :type '(string) :group 'twitter)
+(defcustom twittel-password nil "password" :type 'string :group 'twittel)
 
 ;;; Twitter API
 
 (defun twitter-url-retrieve (url callback cbargs)
-  "Very insecure authentication using BasicAuth to twitter.com."
-  (push '("twitter.com:443" .
-	  '("Twitter API" .
-	    (base64-encode-string (concat twitter-username ":" twitter-password))))
-	url-http-real-basic-auth-storage)
+  "Twittel url-retrieve wrapper with authentication.
+Very insecure authentication using BasicAuth to twitter.com."
+  (unless (assoc "twitter.com:443" url-http-real-basic-auth-storage)
+    (push '("twitter.com:443" .
+	    '("Twitter API" .
+	      (base64-encode-string (concat twittel-username ":" twittel-password))))
+	  url-http-real-basic-auth-storage))
   (url-retrieve url callback cbargs))
 
 (defun twitter-error (status)
@@ -61,6 +65,11 @@
       (signal (car e) (cdr e)))))
 
 ;; Timeline methods
+
+(defun twitter-statuses-timeline (url)
+  (let ((url-request-method "GET")
+	(url-request-data ""))
+    (twitter-url-retrieve url 'twitter-timeline-callback '())))
 
 (defun twitter-statuses-public-timeline ()
   (interactive)
@@ -71,24 +80,15 @@
 
 (defun twitter-statuses-friends-timeline ()
   (interactive)
-  (let ((url-request-method "GET")
-	(url-request-data ""))
-    (twitter-url-retrieve "http://twitter.com/statuses/friends_timeline.xml"
-			  'twitter-timeline-callback '())))
+  (twitter-statuses-timeline "http://twitter.com/statuses/friends_timeline.xml"))
 
 (defun twitter-statuses-user-timeline ()
   (interactive)
-  (let ((url-request-method "GET")
-	(url-request-data ""))
-    (twitter-url-retrieve "http://twitter.com/statuses/user_timeline.xml"
-			  'twitter-timeline-callback '())))
+  (twitter-statuses-timeline "http://twitter.com/statuses/user_timeline.xml"))
 
 (defun twitter-statuses-mentions ()
   (interactive)
-  (let ((url-request-method "GET")
-	(url-request-data ""))
-    (twitter-url-retrieve "http://twitter.com/statuses/mentions.xml"
-			  'twitter-timeline-callback '())))
+  (twitter-statuses-timeline "http://twitter.com/statuses/mentions.xml"))
 
 (defun twitter-timeline-callback (status)
   (let* ((statuses-node (car (xml-parse-region (point-min) (point-max))))
@@ -126,5 +126,41 @@
 (defun twitter-parse-user-node (user-node)
   (let ((screen-name-node (car (xml-get-children user-node 'screen_name))))
     (car (xml-node-children screen-name-node))))
+
+;; Status methods
+
+(defun twitter-statuses-show (id)
+  (let ((url-request-method "GET")
+	(url-request-data (concat "id=" (url-hexify-string id))))
+    (twitter-url-retrieve
+     (concat "http://twitter.com/statuses/show/" id ".xml"))))
+
+(defun twitter-statuses-update-prompt (status)
+  (interactive "sWhat are you doing? " status)
+  (twitter-statuses-update status))
+
+(defun twitter-statuses-update-region (start end)
+  (interactive "r")
+  (let ((status (buffer-substring start end)))
+    (twitter-statuses-update status)))
+
+(defun twitter-statuses-update (status &optional id)
+  (let ((url-request-method "POST")
+	(url-request-data (concat "status=" (url-hexify-string status)
+				  "&source=" (url-hexify-string twittel-source))))
+    (when id
+      (setq url-request-data (concat url-request-data "&in_reply_to_status_id=" id)))
+    (twitter-url-retrieve "http://twitter.com/statuses/update.xml" 'twitter-status-callback nil)))
+
+(defun twitter-status-callback (status)
+  (let* ((status (car (xml-parse-region (point-min) (point-max))))
+	 (contents (twitter-parse-status-node status)))
+    (message "%s" contents)))
+
+(defun twitter-statuses-destroy (id)
+  (let ((url-request-method "DELETE")
+	(url-request-data (concat "id=" (url-hexify-string id))))
+    (twitter-url-retrieve
+     (concat "http://twitter.com/statuses/destroy/" id ".xml"))))
 
 (provide 'twittel)
